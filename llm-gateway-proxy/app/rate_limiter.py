@@ -1,10 +1,11 @@
 from fastapi import Depends, HTTPException
 from redis.asyncio import Redis
 from pydantic_settings import BaseSettings
+from app.auth import get_current_user_optional
 import os
 
 class Settings(BaseSettings):
-    REDIS_URL: str
+    REDIS_URL: str = "redis://localhost:6379"
 
 settings = Settings()
 

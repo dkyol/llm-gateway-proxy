@@ -18,11 +18,14 @@ app = FastAPI(
     description="Open AI compatitable with authentication",
     openapi_url="/openapi.json",
     docs_url="/docs"
-)# === Global setup ===
+)
+
+# === Global setup ===
 setup_logging()  # Helicone + Phoenix + OTEL
+limiter = Limiter(key_func=get_remote_address)
 
 @app.post("/chat/completions")
-@limiter.limit("60/minute") #global fallback
+@limiter.limit("60/minute")
 
 async def chat_completion(
     request: Request,
@@ -45,11 +48,11 @@ async def chat_completion(
 
     try:
         response = await acompletion(
-            model=data["model"]
-            messages=data["messages"]
-            temperature=data.get("temperature", ".8")
-            max_tokens=data.get("max_tokens")
-            stream=data.get("stream", False)
+            model=data["model"],
+            messages=data["messages"],
+            temperature=data.get("temperature", 0.8),
+            max_tokens=data.get("max_tokens"),
+            stream=data.get("stream", False),
             user=user_id,
             litellm_call_id=request.headers.get("x-litellm-call-id"),
             #automatic fallback order 
@@ -69,8 +72,8 @@ async def chat_completion(
         )
 
         # cache non-streaming response for 5 minutes
-        if not data.get("stream")
-            await set_cache(cache_key, response, ttl=300)
+        if not data.get("stream"):
+            await set_cache(cache_Key, response, ttl=300)
 
         latency = time.time() - start_time
         print(f"Request succeeded | {user_id} | {latency:.2f}s")
