@@ -60,17 +60,26 @@ class TokenBudgetLimiter:
 token_budget_limiter = TokenBudgetLimiter()
 
 async def token_budget_check(user=Depends(get_current_user_optional)):
-    """Dependency to check token budget before processing request"""
-    if not user:
-        return {"estimated": 0, "user_id": "anonymous"}
+    """Dependency to check token budget before processing request
     
-    user_id = user.get("user_id", "anonymous")
-    if user_id == "anonymous":
-        return {"estimated": 0, "user_id": "anonymous"}
+    NOTE: Token budget enforcement is currently DISABLED to avoid issues with streaming
+    and complex edge cases. To enable, uncomment the check_and_increment logic below.
+    See SETUP_NOTES.md for recommended implementation pattern using context managers.
+    """
+    # TODO: Implement proper token budget with TokenBudgetReservation context manager
+    # For now, just return placeholder to avoid breaking the handler
+    return {"estimated": 0, "user_id": user.get("user_id", "anonymous") if user else "anonymous"}
     
-    # Pre-increment with estimate to reserve budget
-    estimated = await token_budget_limiter.check_and_increment(
-        user_id, 
-        estimated_tokens=token_budget_limiter.ESTIMATED_TOKENS_PER_REQUEST
-    )
-    return {"estimated": estimated, "user_id": user_id}
+    # DISABLED - Uncomment after implementing proper context manager:
+    # if not user:
+    #     return {"estimated": 0, "user_id": "anonymous"}
+    # 
+    # user_id = user.get("user_id", "anonymous")
+    # if user_id == "anonymous":
+    #     return {"estimated": 0, "user_id": "anonymous"}
+    # 
+    # estimated = await token_budget_limiter.check_and_increment(
+    #     user_id, 
+    #     estimated_tokens=token_budget_limiter.ESTIMATED_TOKENS_PER_REQUEST
+    # )
+    # return {"estimated": estimated, "user_id": user_id}

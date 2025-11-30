@@ -49,18 +49,46 @@
 ## Known Limitations & Future Improvements
 
 ### Token Budget Accounting
-The current token budget implementation uses a simple estimate-and-reconcile pattern:
-- ✅ Works correctly for cache hits (no charge)
-- ✅ Works for non-streaming responses with usage info
-- ✅ Rolls back on provider failures
-- ⚠️  Streaming responses keep the 2000 token estimate (no reconciliation possible)
-- ⚠️  Responses without usage info keep the estimate
 
-**Recommended Enhancement**: Implement a TokenBudgetReservation context manager that:
-1. Wraps the upstream call
-2. Tracks streaming token counts
-3. Guarantees cleanup on all exit paths
-4. See architect guidance for detailed implementation pattern
+**STATUS**: ⚠️  Token budget enforcement is currently **DISABLED**
+
+The token budget feature has been disabled because proper implementation requires handling complex edge cases:
+- Streaming responses (no immediate usage data)
+- Generator exceptions (mid-stream failures)
+- Client cancellations
+- Provider errors after streaming starts
+
+**Why Disabled**: Simple estimate-and-reconcile patterns leak reservations on streaming/error paths, causing:
+- Incorrect quota accounting
+- Users locked out from accumulated estimation errors
+- No actual budget protection
+
+**To Enable Properly**: Implement a `TokenBudgetReservation` async context manager:
+
+```python
+# Recommended pattern from architect review:
+class TokenBudgetReservation:
+    async def __aenter__(self):
+        # Check and increment budget
+        pass
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Always reconcile or rollback
+        pass
+
+# Usage in endpoint:
+async with TokenBudgetReservation(user_id, estimate=2000) as reservation:
+    response = await acompletion(...)
+    if streaming:
+        return wrap_streaming_response(response, reservation)
+    else:
+        reservation.reconcile(actual_tokens)
+        return response
+```
+
+**Current Workaround**: The rate limiter (60 requests/minute) provides basic protection. For production use, implement the context manager pattern above before enabling token budgets.
+
+**See**: Comments in `app/rate_limiter.py` for disabled code that can be re-enabled after proper implementation.
 
 ### Environment Variables for Production
 The following environment variables should be set for production deployment:
