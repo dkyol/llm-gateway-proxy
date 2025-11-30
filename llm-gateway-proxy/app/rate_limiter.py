@@ -11,17 +11,66 @@ settings = Settings()
 
 redis = Redis.from_url(settings.REDIS_URL)
 
-async def token_budget_limiter(user=Depends(get_current_user_optional)):
-    user_id = user["user_id"]
-    key = f"budget:{user_id}"
+class TokenBudgetLimiter:
+    MONTHLY_BUDGET = 1_000_000
+    ESTIMATED_TOKENS_PER_REQUEST = 2000
+    
+    async def check_and_increment(self, user_id: str, estimated_tokens: int = 0):
+        """Check if user has budget remaining and pre-increment with estimate"""
+        key = f"budget:{user_id}"
+        
+        current = await redis.get(key)
+        current_usage = int(current or 0)
+        
+        # Check if adding this request would exceed budget
+        if current_usage + estimated_tokens >= self.MONTHLY_BUDGET:
+            raise HTTPException(429, "Monthly token budget exceeded")
+        
+        # Pre-increment with estimate to reserve budget for this request
+        if current is None:
+            await redis.set(key, estimated_tokens, ex=2592000)  # 30 days
+        else:
+            await redis.incrby(key, estimated_tokens)
+        
+        return estimated_tokens  # Return how much we pre-incremented
+    
+    async def reconcile_usage(self, user_id: str, estimated: int, actual: int):
+        """Reconcile estimated with actual token usage"""
+        if not user_id or user_id == "anonymous":
+            return
+        
+        key = f"budget:{user_id}"
+        # Adjust by the difference (actual - estimated)
+        difference = actual - estimated
+        if difference != 0:
+            await redis.incrby(key, difference)
+    
+    async def increment_usage(self, user_id: str, tokens: int):
+        """Direct increment for cases without pre-increment"""
+        if not user_id or user_id == "anonymous":
+            return
+            
+        key = f"budget:{user_id}"
+        current = await redis.get(key)
+        if current is None:
+            await redis.set(key, tokens, ex=2592000)  # 30 days
+        else:
+            await redis.incrby(key, tokens)
 
-    # Example: 1M tokens per month budget
-    current = await redis.get(key)
-    if current is None:
-        await redis.set(key, 0, ex=2592000)  # 30 days
+token_budget_limiter = TokenBudgetLimiter()
 
-    if int(current or 0) > 1_000_000:
-        raise HTTPException(429, "Monthly token budget exceeded")
-
-    # Increment on response (LiteLLM does this automatically with logging)
-    return True
+async def token_budget_check(user=Depends(get_current_user_optional)):
+    """Dependency to check token budget before processing request"""
+    if not user:
+        return {"estimated": 0, "user_id": "anonymous"}
+    
+    user_id = user.get("user_id", "anonymous")
+    if user_id == "anonymous":
+        return {"estimated": 0, "user_id": "anonymous"}
+    
+    # Pre-increment with estimate to reserve budget
+    estimated = await token_budget_limiter.check_and_increment(
+        user_id, 
+        estimated_tokens=token_budget_limiter.ESTIMATED_TOKENS_PER_REQUEST
+    )
+    return {"estimated": estimated, "user_id": user_id}

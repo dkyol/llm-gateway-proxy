@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Request, HTTPException, status, Depends
 
 from litellm import acompletion 
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.auth import verify_api_key, verify_jwt, get_current_user_optional
-from app.rate_limiter import token_budget_limiter
+from app.rate_limiter import token_budget_check, token_budget_limiter
 from app.cache import get_cached_response, set_cache
 from app.logging import setup_logging 
 
@@ -21,6 +22,8 @@ app = FastAPI(
 # === Global setup ===
 setup_logging()  # Helicone + Phoenix + OTEL
 limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.post("/chat/completions")
 @limiter.limit("60/minute")
@@ -28,7 +31,7 @@ limiter = Limiter(key_func=get_remote_address)
 async def chat_completion(
     request: Request,
     user=Depends(get_current_user_optional),
-    token_budget_check=Depends(token_budget_limiter)
+    budget_check=Depends(token_budget_check)
 ):
 
     start_time = time.time()
@@ -69,6 +72,14 @@ async def chat_completion(
             }
         )
 
+        # Reconcile actual token usage with estimate
+        if budget_check and budget_check.get("estimated", 0) > 0:
+            estimated = budget_check["estimated"]
+            if hasattr(response, 'usage') and response.usage:
+                actual_tokens = response.usage.total_tokens
+                await token_budget_limiter.reconcile_usage(user_id, estimated, actual_tokens)
+            # If no usage info, keep the estimate (already incremented)
+        
         # cache non-streaming response for 5 minutes
         if not data.get("stream"):
             await set_cache(cache_Key, response, ttl=300)
