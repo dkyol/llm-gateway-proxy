@@ -4,3 +4,43 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
+packages = ["redis"]
+
+[userenv]
+
+[userenv.shared]
+REDIS_URL = "redis://localhost:6379"
+JWT_SECRET = "development-secret-change-in-production"
+JWT_ALGORITHM = "HS256"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "LLM Gateway Server"
+
+[[workflows.workflow]]
+name = "LLM Gateway Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd llm-gateway-proxy && uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 41809
+externalPort = 3000

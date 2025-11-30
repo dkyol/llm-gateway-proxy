@@ -1,8 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException, status, Depends
-from fastapi import Depends
 
 from litellm import acompletion 
-from litellm.proxy.utils import ProxyConfig
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.auth import verify_api_key, verify_jwt, get_current_user_optional
