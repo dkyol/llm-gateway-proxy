@@ -1,0 +1,22 @@
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+litellm[proxy]==1.52.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+redis==5.0.8
+aioredis==2.0.1
+slowapi==0.1.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-multipart==0.0.9
+opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
+opentelemetry-instrumentation-fastapi==0.48b0
+opentelemetry-exporter-otlp==1.27.0
+
+
+## 1. Upgrade pip, setuptools, wheel first (important!)
+#python -m pip install --upgrade pip setuptools wheel
+
+# 2. Install the requirements using pre-compiled Windows wheels only
+#pip install --only-binary=all -r requirements.txt
