@@ -30,8 +30,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 async def chat_completion(
     request: Request,
-    user=Depends(get_current_user_optional),
-    budget_check=Depends(token_budget_check)
+    user=Depends(get_current_user_optional)
 ):
 
     start_time = time.time()
@@ -40,12 +39,17 @@ async def chat_completion(
     # extract user_id 
     user_id = user['user_id'] if user else 'anonymous'
 
-    #caching (simple has of prompt and model)
+    #caching (simple hash of prompt and model)
     cache_Key = f"{data.get('model')} : {hash(str(data.get('messages')))}"
     cached = await get_cached_response(cache_Key)
 
+    # Return cached response early - no budget charge for cache hits
     if cached and data.get("stream") != True:
-        return cached 
+        print(f"Cache hit for {user_id}")
+        return cached
+    
+    # Check token budget before making upstream call (only for non-cached requests)
+    budget_check = await token_budget_check(user) 
 
     try:
         response = await acompletion(
@@ -90,6 +94,11 @@ async def chat_completion(
         return response
 
     except Exception as e:
+        # Roll back the budget reservation on failure
+        if budget_check and budget_check.get("estimated", 0) > 0:
+            estimated = budget_check["estimated"]
+            await token_budget_limiter.reconcile_usage(user_id, estimated, 0)
+        
         latency = time.time() - start_time
         print(f"Request failed | {user_id} | {latency:.2f}s | {str(e)}")
         raise HTTPException(status_code=502, detail=str(e))
