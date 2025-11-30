@@ -68,9 +68,8 @@ The proxy supports two authentication methods:
 Anonymous requests are allowed but have limited quota.
 
 ## Rate Limiting
-- Global rate limit: 60 requests per minute
-- Per-user monthly token budget: 1M tokens
-- Budget tracking via Redis with 30-day TTL
+- Global rate limit: 60 requests per minute (via SlowAPI)
+- **Note**: Per-user token budget enforcement is currently disabled (see SETUP_NOTES.md for details and implementation guidance)
 
 ## Development Setup
 
@@ -84,7 +83,8 @@ The application is configured to run on **port 5000** with:
 The project uses **autoscale** deployment target:
 - Automatically scales based on traffic
 - Runs on-demand (cost-efficient)
-- Command: `uvicorn app.main:app --host 0.0.0.0`
+- Command: `cd llm-gateway-proxy && uvicorn app.main:app --host 0.0.0.0 --port 5000`
+- Note: The `cd llm-gateway-proxy` is required because the app code is in a subdirectory
 
 ## Recent Changes (Import Setup)
 
@@ -97,10 +97,13 @@ The project uses **autoscale** deployment target:
 7. Set up Redis server
 8. Configured workflow for port 5000
 9. Created .gitignore for Python projects
+10. Fixed deployment configuration to handle subdirectory structure
+11. Disabled token budget enforcement (documented for future implementation)
+12. Implemented Redis caching with proper serialization
 
 ## Notes
 
 - The application uses LiteLLM for automatic provider fallback
 - Caching is implemented for non-streaming responses (5-minute TTL)
-- Rate limiting and token budgets are stored in Redis
 - The proxy is OpenAI-compatible, allowing drop-in replacement for OpenAI API
+- See **SETUP_NOTES.md** for known limitations and production recommendations
