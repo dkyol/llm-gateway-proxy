@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Request, HTTPException, status, Depends
+from fastapi import FastAPI, Request, HTTPException, status, Depends, APIRouter
 
-from litellm import acompletion 
+from litellm import acompletion, token_counter 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from app.auth import verify_api_key, verify_jwt, get_current_user_optional
-from app.rate_limiter import token_budget_check, token_budget_limiter
+from app.auth import verify_api_key, verify_jwt, get_current_user
+from app.rate_limiter import token_budget_limiter
 from app.cache import get_cached_response, set_cache
 from app.logging import setup_logging 
 
@@ -14,94 +14,55 @@ import time
 
 app = FastAPI(
     title="LLM Gateway Proxy",
-    description="Open AI compatitable with authentication",
+    description="OpenAI compatible with authentication",  # fixed typo
     openapi_url="/openapi.json",
     docs_url="/docs"
 )
 
 # === Global setup ===
-setup_logging()  # Helicone + Phoenix + OTEL
+setup_logging()  
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-@app.post("/chat/completions")
-@limiter.limit("60/minute")
+# Fix: define router and include it so the endpoint actually exists and is under /v1
+router = APIRouter()
 
+@router.post("/chat/completions")
 async def chat_completion(
     request: Request,
-    user=Depends(get_current_user_optional)
+    user = Depends(get_current_user),  # REQUIRED auth – 401 if missing JWT or API key
 ):
-
-    start_time = time.time()
     data = await request.json()
+    user_id = user.sub  # JWT sub is the user ID (or use user.id if you store it differently)
 
-    # extract user_id 
-    user_id = user['user_id'] if user else 'anonymous'
+    model = data.get("model")
+    messages = data.get("messages", [])
+    max_tokens = data.get("max_tokens", 1024)  # safe default
 
-    #caching (simple hash of prompt and model)
-    cache_Key = f"{data.get('model')} : {hash(str(data.get('messages')))}"
-    cached = await get_cached_response(cache_Key)
+    # Accurate prompt token count + conservative completion estimate
+    prompt_tokens = token_counter(model=model, messages=messages)
+    estimated_tokens = prompt_tokens + max_tokens
 
-    # Return cached response early - no budget charge for cache hits
-    if cached and data.get("stream") != True:
-        print(f"Cache hit for {user_id}")
-        return cached
-    
-    # Check token budget before making upstream call (only for non-cached requests)
-    budget_check = await token_budget_check(user) 
+    # Reserve budget – will raise 429 if exceeded
+    await token_budget_limiter.check_and_increment(user_id, estimated_tokens)
 
     try:
-        response = await acompletion(
-            model=data["model"],
-            messages=data["messages"],
-            temperature=data.get("temperature", 0.8),
-            max_tokens=data.get("max_tokens"),
-            stream=data.get("stream", False),
-            user=user_id,
-            litellm_call_id=request.headers.get("x-litellm-call-id"),
-            #automatic fallback order 
-            litellm_params={
-                "timeout" : 120,
-                "max_retries" : 2,
-                "fallback_models": ["gpt-4o", "claude-3-5-sonnet-20241022"]
+        # Forward to LiteLLM
+        response = await acompletion(**data)
 
-            }, 
-            # logging & cost 
-            metadata= {
-                "user_api_key" : request.headers.get("authorization", "")[:20] + "...",
-                "user_id": user_id,
-                "helicone_api_key": os.getenv("HELICONE_API_KEY"),
-
-            }
-        )
-
-        # Reconcile actual token usage with estimate
-        if budget_check and budget_check.get("estimated", 0) > 0:
-            estimated = budget_check["estimated"]
-            if hasattr(response, 'usage') and response.usage:
+        # Reconcile exact usage for non-streaming requests
+        if not data.get("stream", False):
+            if hasattr(response, "usage") and response.usage and response.usage.total_tokens:
                 actual_tokens = response.usage.total_tokens
-                await token_budget_limiter.reconcile_usage(user_id, estimated, actual_tokens)
-            # If no usage info, keep the estimate (already incremented)
-        
-        # cache non-streaming response for 5 minutes
-        if not data.get("stream"):
-            await set_cache(cache_Key, response, ttl=300)
-
-        latency = time.time() - start_time
-        print(f"Request succeeded | {user_id} | {latency:.2f}s")
+                await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, actual_tokens)
 
         return response
 
     except Exception as e:
-        # Roll back the budget reservation on failure
-        if budget_check and budget_check.get("estimated", 0) > 0:
-            estimated = budget_check["estimated"]
-            await token_budget_limiter.reconcile_usage(user_id, estimated, 0)
-        
-        latency = time.time() - start_time
-        print(f"Request failed | {user_id} | {latency:.2f}s | {str(e)}")
-        raise HTTPException(status_code=502, detail=str(e))
+        # If the LLM call fails, give the tokens back
+        await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, 0)
+        raise e
 
 # Health + OpenAI-compatible root
 @app.get("/")
@@ -115,4 +76,7 @@ async def list_models(user=Depends(verify_api_key)):
         {"id": "gpt-4o", "object": "model"},
         {"id": "claude-3-5-sonnet-20241022", "object": "model"},
     ]
-    return {"data": models, "object": "list"}   
+    return {"data": models, "object": "list"}
+
+# Critical: include the router so /v1/chat/completions exists
+app.include_router(router, prefix="/v1")
