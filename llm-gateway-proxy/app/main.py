@@ -10,6 +10,7 @@ from app.logging import setup_logging
 import os
 import time
 
+
 app = FastAPI(
     title="LLM Gateway Proxy",
     description="OpenAI compatible with authentication",  
@@ -65,55 +66,129 @@ async def fallback_completion(
     user = Depends(get_current_user)
 )
 
-"""Attempts completion using models until once succeeds"""
-data = await request.json()
-user_id = user.sub
-
-#expect list of models 
-fallback_models: List[str] = data.pop("fallback_models", [])
-
-if not fallback_models:
+    """Attempts completion using models until once succeeds
+     "fallback_models": ["gpt-4o", "claude-3-5-sonnet-20241022", "gpt-3.5-turbo"]
+    """
+    data = await request.json()
+    user_id = user.sub
+    
+    #expect list of models 
+    fallback_models: List[str] = data.pop("fallback_models", [])
+    
+    if not fallback_models:
+        raise HTTPException(
+            status_code = status.HTTP_400_BAD_REQUEST,
+            detail = "No List of models provided in request body"
+        )
+    
+    # try first model in the list 
+    primary_model_used = None
+    
+    for model_name in fallback_models:
+        request_data = data.copy()
+        request_data['model'] = model_name 
+    
+        #estimate tokens 
+        prompt_tokens = token_counter(model=model_name, messages=request_data.get("messages", []))
+        max_tokens = request_data.get("max_tokens", 1024)
+        estimated_tokens = prompt_tokens + max_tokens 
+    
+        try:
+            await token_budget_limiter.check_and_increment(user_id, estimated_tokens)
+    
+            response = await acompletion(**request_data)
+    
+            #Success! Reconcile usage
+            if not data.get("stream", False):
+                if hasattr(response, "usage") and response.usage and response.usage.total_tokens:
+                    actual_tokens = response.usage.total_tokens
+                    await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, actual_tokens)
+    
+            print(f"used this model {model_name}")
+            return response 
+    
+        except Exception as e:
+            # failure for this model
+            await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, 0)
+            print(f"Model {model_name} failed. Trying next model. Error: {str(e)}")        
+            continue # try next model
     raise HTTPException(
-        status_code = status.HTTP_400_BAD_REQUEST,
-        detail = "No List of models provided in request body"
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail = "list of models failed to generate a response"
     )
 
-# try first model in the list 
-primary_model_used = None
+class ComparisonRequest(BaseModel):
+    prompt: str
+    models: List[str] #list of model names to compare 
 
-for model_name in fallback_models:
-    request_data = data.copy()
-    request_data['model'] = model_name 
+class ModelResponseComparison(BaseModel):
+    model_id: str
+    response_content: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    error: str | None = None
 
-    #estimate tokens 
-    prompt_tokens = token_counter(model=model_name, messages=request_data.get("messages", []))
-    max_tokens = request_data.get("max_tokens", 1024)
-    estimated_tokens = prompt_tokens + max_tokens 
+class ComparisonResponse(BaseModel):
+    comparison_results: List[ModelResponseComparison]
 
-    try:
-        await token_budget_limiter.check_and_increment(user_id, estimated_tokens)
+@app.post("/compare_models", response_model=ComparisonResponse)
+async def compare_models(
+    comparison_data: ComparisonRequest,
+    user = Depends(get_current_user)
+    )
 
-        response = await acompletion(**request_data)
+    """Compares output from selected models for a single prompt"""
 
-        #Success! Reconcile usage
-        if not data.get("stream", False):
-            if hasattr(response, "usage") and response.usage and response.usage.total_tokens:
-                actual_tokens = response.usage.total_tokens
-                await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, actual_tokens)
+    user_id = user.sub
+    results_list = []
 
-        print(f"used this model {model_name}")
-        return response 
+    messages = [{"role": "user", "content": comparison_data.prompt}]
 
-    except Exception as e:
-        # failure for this model
-        await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, 0)
-        print(f"Model {model_name} failed. Trying next model. Error: {str(e)}")        
-        continue # try next model
-raise HTTPException(
-    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-    detail = "list of models failed to generate a response"
-)
+    # iterate through the requested models sequentially 
+    for model_name in comparison_data.models:
+        estimated_tokens = token_counter(model=model_name, messages=messages) + 1024
 
+        try:
+            await token_budget_limiter.check_and_increment(user_id, estimated_tokens)
+
+            #Call LLM using lite LLM
+            response = await acompletion(
+                model = model_name,
+                messages=messages,
+                max_tokens=1024
+            )
+
+            # extract data and reconcile usage 
+            actual_tokens = response.usage.total_tokens
+            await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, actual_tokens)
+
+            results_list.append(
+                    ModelResponseComparison(
+                        model_id=model_name,
+                        response_content=response.choices[0].message.content,
+                        prompt_tokens=response.usage.prompt_tokens,
+                        completion_tokens=response.usage.completion_tokens,
+                        total_tokens=response.usage.total_tokens,
+                        error=None
+                    )
+            )
+
+        except Exception as e:
+            # if any model fails give tokens back
+
+            await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, 0 )
+            results_list.append(ModelResponseComparison(
+                model_id=model_name,
+                response_content = "",
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                error=str(e)
+            ))
+
+    return ComparisonResponse(comparison_results=results_list)
+            
 @app.get("/")
 @app.get("/health")
 async def health():
