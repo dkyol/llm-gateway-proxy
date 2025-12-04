@@ -38,25 +38,23 @@ llm-gateway-proxy/
 - `JWT_SECRET`: Secret key for JWT token signing
 - `JWT_ALGORITHM`: JWT signing algorithm (default: HS256)
 
-### Optional
-- `HELICONE_API_KEY`: Helicone API key for observability
 - LLM Provider API Keys (set as needed):
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
   - `GROQ_API_KEY`
 
 ## API Endpoints
+- /chat/completion
+- /model_comparion
+- /model_fallback
 
 ### Health Check
 - `GET /` or `GET /health` - Returns server status
 
 ### OpenAI-Compatible
 - `POST /chat/completions` - Chat completion endpoint (requires authentication)
-- `GET /v1/models` - List available models (requires API key)
+- `GET /v1/models` - List available models 
 
-### Documentation
-- `GET /docs` - Interactive API documentation (Swagger UI)
-- `GET /openapi.json` - OpenAPI schema
 
 ## Authentication
 
@@ -86,20 +84,6 @@ The project uses **autoscale** deployment target:
 - Command: `cd llm-gateway-proxy && uvicorn app.main:app --host 0.0.0.0 --port 5000`
 - Note: The `cd llm-gateway-proxy` is required because the app code is in a subdirectory
 
-## Recent Changes (Import Setup)
-
-1. Fixed dependency conflicts in requirements.txt
-2. Created missing cache.py module
-3. Fixed syntax errors in main.py (commas, colons)
-4. Added missing imports in rate_limiter.py
-5. Initialized SlowAPI limiter in main.py
-6. Configured environment variables for JWT and Redis
-7. Set up Redis server
-8. Configured workflow for port 5000
-9. Created .gitignore for Python projects
-10. Fixed deployment configuration to handle subdirectory structure
-11. Disabled token budget enforcement (documented for future implementation)
-12. Implemented Redis caching with proper serialization
 
 ## Notes
 
