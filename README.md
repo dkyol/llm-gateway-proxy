@@ -1,4 +1,13 @@
 # LLM Gateway Proxy
+**LLM Gateway Proxy** is a simple but powerful reverse proxy for Large Language Models that makes working with multiple models much easier and more reliable.
+
+It gives you two super-useful features:
+
+- **Instant model comparison** – Send the same prompt to several models at once and see all their responses side-by-side in a single request. Perfect for quickly testing which model (GPT-4o, Claude 3.5, Gemini, Llama 3.1, etc.) gives the best output for your use case.
+
+- **Automatic fallback on failure** – Define a list of backup models/endpoints. If the main model times out, returns an error, or hits rate limits, the proxy instantly retries the request with the next model in your list—so your app never breaks because one provider is down or overloaded.
+
+In short: compare models in one click, and keep your requests running reliably even if/when individual LLMs fail reach token limit. Don't babysit multiple APIs.
 
 ## Overview
 An OpenAI-compatible API gateway proxy that provides:
@@ -42,18 +51,16 @@ llm-gateway-proxy/
   - `ANTHROPIC_API_KEY`
   - `GROQ_API_KEY`
 
-## API Endpoints
-- /chat/completion
-- /model_comparion
-- /model_fallback
-
-### Health Check
-- `GET /` or `GET /health` - Returns server status
-
 ### OpenAI-Compatible
 - `POST /chat/completions` - Chat completion endpoint (requires authentication)
 - `GET /v1/models` - List available models 
 
+## Other API Endpoints
+- /chat/fallback_completion
+- /compare_models
+
+### Health Check
+- `GET /` or `GET /health` - Returns server status
 
 ## Authentication
 
