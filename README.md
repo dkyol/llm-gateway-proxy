@@ -7,8 +7,7 @@ An OpenAI-compatible API gateway proxy that provides:
 - **Per-user rate limiting** with monthly token budgets
 - **Automatic fallback** across multiple LLM providers (OpenAI → Anthropic → Groq)
 - **Response caching** using Redis for improved performance
-- **Observability** with OpenTelemetry and Helicone integration
-
+- **Observability** PostHog
 ## Project Structure
 ```
 llm-gateway-proxy/
