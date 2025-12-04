@@ -19,7 +19,7 @@ def verify_api_key(x_api_key: str = Header(None, alias="x-api-key")):
         raise HTTPException(401, "Invalid API key")
     return {"user_id": x_api_key[:20]}
 
-def get_current_user_optional(
+def get_current_user(
     authorization: str = Header(None),
     x_api_key: str = Header(None, alias="x-api-key")
 ):
@@ -27,4 +27,7 @@ def get_current_user_optional(
         return verify_jwt(authorization)
     if x_api_key:
         return verify_api_key(x_api_key)
-    return {"user_id": "anonymous"}
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="not authenticated"
+    )
