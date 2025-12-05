@@ -95,5 +95,4 @@ The project uses **autoscale** deployment target:
 
 - The application uses LiteLLM for automatic provider fallback
 - Caching is implemented for non-streaming responses (5-minute TTL)
-- The proxy is OpenAI-compatible, allowing drop-in replacement for OpenAI API
-- See **SETUP_NOTES.md** for known limitations and production recommendations
+- The endpoints are innteded to be drop-in replacement for OpenAI 
