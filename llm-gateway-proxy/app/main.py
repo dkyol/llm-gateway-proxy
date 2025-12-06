@@ -6,9 +6,12 @@ from slowapi.errors import RateLimitExceeded
 from app.auth import verify_api_key, verify_jwt, get_current_user
 from app.rate_limiter import token_budget_limiter
 from app.cache import get_cached_response, set_cache
-from app.logging import setup_logging 
+from app.log import setup_logging, log_to_posthog
+from app.log import setup_logging 
 import os
 import time
+from pydantic import BaseModel
+from typing import List
 
 
 app = FastAPI(
@@ -19,7 +22,7 @@ app = FastAPI(
 )
 
 # === Global setup ===
-setup_logging()  
+setup_logging(app)  
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -53,18 +56,44 @@ async def chat_completion(
                 actual_tokens = response.usage.total_tokens
                 await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, actual_tokens)
 
+        log_to_posthog(
+        distinct_id=user_id,
+        event="chat_completion_success",
+        properties={
+            "model": model,
+            "prompt_tokens": prompt_tokens,
+            "estimated_tokens": estimated_tokens,
+            "actual_total_tokens": response.usage.total_tokens if hasattr(response, "usage") and response.usage else None,
+            "stream": data.get("stream", False),
+            "max_tokens": max_tokens,
+            "temperature": data.get("temperature"),
+            "user_agent": request.headers.get("user-agent"),
+        },
+        )
         return response
 
     except Exception as e:
         # If the LLM call fails, give the tokens back
         await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, 0)
+        
+        log_to_posthog(
+        distinct_id=user_id,
+        event="chat_completion_error",
+        properties={
+            "model": model,
+            "estimated_tokens": estimated_tokens,
+            "error_type": str(type(e).__name__),
+            "error_message": str(e)[:200],  # truncate long errors
+        },
+        )
+        
         raise e
 
 @app.post("/chat/fallback_completion")
 async def fallback_completion(
     request: Request,
     user = Depends(get_current_user)
-)
+):
 
     """Attempts completion using models until once succeeds
      "fallback_models": ["gpt-4o", "claude-3-5-sonnet-20241022", "gpt-3.5-turbo"]
@@ -105,13 +134,32 @@ async def fallback_completion(
                     await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, actual_tokens)
     
             print(f"used this model {model_name}")
-            return response 
+            
+            log_to_posthog(
+                distinct_id=user_id,
+                event="fallback_completion_success",
+                properties={
+                    "successful_model": model_name,
+                    "fallback_models_tried": fallback_models,
+                    "successful_attempt_number": fallback_models.index(model_name) + 1,
+                },
+            )
+            return response
+ 
     
         except Exception as e:
             # failure for this model
             await token_budget_limiter.reconcile_usage(user_id, estimated_tokens, 0)
             print(f"Model {model_name} failed. Trying next model. Error: {str(e)}")        
             continue # try next model
+    log_to_posthog(
+    distinct_id=user_id,
+    event="fallback_completion_all_failed",
+    properties={
+        "fallback_models_tried": fallback_models,
+    },
+    )
+    
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail = "list of models failed to generate a response"
@@ -136,7 +184,7 @@ class ComparisonResponse(BaseModel):
 async def compare_models(
     comparison_data: ComparisonRequest,
     user = Depends(get_current_user)
-    )
+    ):
 
     """Compares output from selected models for a single prompt"""
 
@@ -173,6 +221,18 @@ async def compare_models(
                         error=None
                     )
             )
+            successful = [r.model_id for r in results_list if r.error is None]
+            log_to_posthog(
+                distinct_id=user_id,
+                event="model_comparison_completed",
+                properties={
+                    "models_requested": comparison_data.models,
+                    "models_succeeded": successful,
+                    "models_failed": [r.model_id for r in results_list if r.error is not None],
+                    "total_prompt_tokens": sum(r.prompt_tokens for r in results_list),
+                },
+            )
+
 
         except Exception as e:
             # if any model fails give tokens back
