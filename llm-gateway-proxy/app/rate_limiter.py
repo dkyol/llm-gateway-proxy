@@ -3,7 +3,7 @@ from redis.asyncio import Redis
 from pydantic_settings import BaseSettings
 from app.auth import get_current_user
 import os
-from app.logging import log_to_posthog
+from app.log import log_to_posthog
 
 class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
