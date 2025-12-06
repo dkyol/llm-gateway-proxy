@@ -1,5 +1,5 @@
-fastapi>=0.111.0,<0.112.0
-uvicorn[standard]>=0.22.0,<0.23.0
+fastapi==0.111.1
+uvicorn[standard]==0.30.6
 litellm[proxy]==1.52.6
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
@@ -15,8 +15,3 @@ opentelemetry-instrumentation-fastapi==0.48b0
 opentelemetry-exporter-otlp==1.27.0
 
 
-## 1. Upgrade pip, setuptools, wheel first (important!)
-#python -m pip install --upgrade pip setuptools wheel
-
-# 2. Install the requirements using pre-compiled Windows wheels only
-#pip install --only-binary=all -r requirements.txt
