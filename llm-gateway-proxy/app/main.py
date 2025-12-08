@@ -30,7 +30,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 @app.post("/chat/completions")
 async def chat_completion(
     request: Request,
-    user = Depends(get_current_user),  # REQUIRED auth – 401 if missing JWT or API key
+    #user = Depends(get_current_user),  # REQUIRED auth – 401 if missing JWT or API key
+    user = None
 ):
     data = await request.json()
     user_id = user.sub  # JWT sub is the user ID (or use user.id if you store it differently)
@@ -111,7 +112,7 @@ async def fallback_completion(
         )
     
     # try first model in the list 
-    primary_model_used = None
+    #primary_model_used = None
     
     for model_name in fallback_models:
         request_data = data.copy()
