@@ -12,6 +12,9 @@ import os
 import time
 from pydantic import BaseModel
 from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 app = FastAPI(
@@ -30,11 +33,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 @app.post("/chat/completions")
 async def chat_completion(
     request: Request,
-    #user = Depends(get_current_user),  # REQUIRED auth – 401 if missing JWT or API key
-    user = None
+    user = Depends(get_current_user),  # REQUIRED auth – 401 if missing JWT or API key
+    #user = None
 ):
     data = await request.json()
-    user_id = user.sub  # JWT sub is the user ID (or use user.id if you store it differently)
+    user_id = user["sub"]  # JWT sub is the user ID (or use user.id if you store it differently)
 
     model = data.get("model")
     messages = data.get("messages", [])
@@ -100,7 +103,7 @@ async def fallback_completion(
      "fallback_models": ["gpt-4o", "claude-3-5-sonnet-20241022", "gpt-3.5-turbo"]
     """
     data = await request.json()
-    user_id = user.sub
+    user_id = user["sub"]
     
     #expect list of models 
     fallback_models: List[str] = data.pop("fallback_models", [])
@@ -189,7 +192,7 @@ async def compare_models(
 
     """Compares output from selected models for a single prompt"""
 
-    user_id = user.sub
+    user_id = user["sub"]
     results_list = []
 
     messages = [{"role": "user", "content": comparison_data.prompt}]
