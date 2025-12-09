@@ -1,43 +1,48 @@
 import os
 import atexit
-import posthog
 from typing import Optional
 from fastapi import FastAPI
 
-
-# Global flag so we only flush if PostHog is actually enabled
+# We'll use the modern client pattern – works on every PostHog version
+client = None
 _posthog_enabled = False
 
 def setup_logging(app: Optional[FastAPI] = None):
+    global client, _posthog_enabled
 
-    # === PostHog analytics ===
     posthog_project_api_key = os.getenv("POSTHOG_PROJECT_API_KEY")
     if posthog_project_api_key:
-        global _posthog_enabled
-        _posthog_enabled = True
+        try:
+            # This import works in all versions
+            from posthog import Posthog
 
-        posthog.project_api_key = posthog_project_api_key
-        posthog.host = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")  # change to https://eu.i.posthog.com if you use EU instance
+            host = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
+            client = Posthog(project_api_key=posthog_project_api_key, host=host)
 
-        if os.getenv("DEBUG", "").lower() == "true":
-            posthog.debug = True
+            if os.getenv("DEBUG", "").lower() == "true":
+                client.debug = True
 
-        # Ensure events are flushed when the process shuts down (important for uvicorn/gunicorn)
-        atexit.register(posthog.flush)
+            _posthog_enabled = True
+
+            # Flush on exit (works perfectly with uvicorn/gunicorn)
+            atexit.register(lambda: client.flush() if client else None)
+
+        except Exception as e:
+            print(f"PostHog failed to initialize (will be disabled): {e}")
+            _posthog_enabled = False
 
 def log_to_posthog(distinct_id: str, event: str, properties: Optional[dict] = None):
-    """
-    Safe wrapper – does nothing if PostHog is not configured.
-    Use this everywhere you want to track analytics (successes, errors, fallbacks, comparisons, etc.).
-    """
-    if not _posthog_enabled:
+    if not _posthog_enabled or not client:
         return
 
     if properties is None:
         properties = {}
 
-    # Always add some useful defaults
     properties.setdefault("$process", "llm-gateway-proxy")
     properties.setdefault("$lib", "python-posthog")
 
-    posthog.capture(distinct_id=distinct_id, event=event, properties=properties)
+    # We don't let PostHog crash the request even if it fails
+    try:
+        client.capture(distinct_id=distinct_id, event=event, properties=properties)
+    except Exception as e:
+        print(f"PostHog capture failed: {e}")
