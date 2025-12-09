@@ -95,4 +95,51 @@ The project uses **autoscale** deployment target:
 
 - The application uses LiteLLM for automatic provider fallback
 - Caching is implemented for non-streaming responses (5-minute TTL)
-- The endpoints are innteded to be drop-in replacement for OpenAI 
+- The endpoints are innteded to be drop-in replacement for OpenAI
+
+## Usage 
+
+- ## Example
+
+```bash
+curl http://localhost:8080/chat/completions \
+  -H "x-api-key: your-key" \
+  -d '{
+    "model": "groq/llama-3.3-70b-versatile",
+    "messages": [{"role": "user", "content": "Say 'Hello from LLM Gateway Proxy!' in a pirate voice"}]
+  }'
+
+{
+  "id": "chatcmpl-013adbc1-e2da-477a-91fe-716ef1d80924",
+  "created": 1765243884,
+  "model": "groq/llama-3.3-70b-versatile",
+  "object": "chat.completion",
+  "system_fingerprint": "fp_43d97c5965",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Yer lookin' fer a greetin', eh? Alright then, matey... **Hello from LLM Gateway Proxy!** Yer hearin' from the scurvy dogs at the LLM Gateway Proxy, ready to set sail fer a sea o' knowledge and swashbucklin' conversation!",
+        "role": "assistant",
+        "tool_calls": null,
+        "function_call": null
+      }
+    }
+  ],
+  "usage": {
+    "completion_tokens": 64,
+    "prompt_tokens": 48,
+    "total_tokens": 112,
+    "queue_time": 0.008156261,
+    "prompt_time": 0.002236208,
+    "completion_time": 0.197565153,
+    "total_time": 0.199801361
+  },
+  "service_tier": "on_demand",
+  "x_groq": {
+    "id": "req_01kc0br515eh9bvvbtv20rg82x",
+    "seed": 826124429
+  }
+}
+
