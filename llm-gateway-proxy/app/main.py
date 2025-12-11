@@ -30,7 +30,7 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-@app.post("/chat/completions")
+@app.post("/v1/chat/completions")
 async def chat_completion(
     request: Request,
     user = Depends(get_current_user),  # REQUIRED auth – 401 if missing JWT or API key
